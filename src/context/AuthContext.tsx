@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/services/supabaseClient';
+import { DEMO_USER, DEMO_HOST, DEMO_PASSWORD } from '@/services/demoData';
 import type { User, UserRole } from '@/types';
+
+const USE_DEMO = true;
 
 interface AuthContextType {
   user: User | null;
@@ -20,90 +22,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
-    }
-
-    return data as unknown as User;
-  }, []);
-
   const refreshUser = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      const profile = await fetchUserProfile(session.user.id);
-      if (profile) {
-        setUser(profile);
-      } else {
-        const newUser: User = {
-          id: session.user.id,
-          email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || '',
-          avatar_url: session.user.user_metadata?.avatar_url,
-          role: session.user.user_metadata?.role || 'guest',
-          created_at: session.user.created_at || new Date().toISOString(),
-        };
-        setUser(newUser);
-      }
-    } else {
-      setUser(null);
-    }
-  }, [fetchUserProfile]);
-
-  useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        if (profile) {
-          setUser(profile);
-        } else {
-          const newUser: User = {
-            id: session.user.id,
-            email: session.user.email || '',
-            full_name: session.user.user_metadata?.full_name || '',
-            avatar_url: session.user.user_metadata?.avatar_url,
-            role: session.user.user_metadata?.role || 'guest',
-            created_at: session.user.created_at || new Date().toISOString(),
-          };
-          setUser(newUser);
-        }
-      } else {
-        setUser(null);
+    if (USE_DEMO) {
+      const saved = localStorage.getItem('demo_user');
+      if (saved) {
+        setUser(JSON.parse(saved));
       }
       setLoading(false);
-    });
+      return;
+    }
+  }, []);
 
-    return () => subscription.unsubscribe();
-  }, [refreshUser, fetchUserProfile]);
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    if (USE_DEMO) {
+      const normalizedEmail = email.toLowerCase().trim();
+      if (normalizedEmail === 'demo@rentpro.com' && password === DEMO_PASSWORD) {
+        setUser(DEMO_USER);
+        localStorage.setItem('demo_user', JSON.stringify(DEMO_USER));
+        return { error: null };
+      }
+      if (normalizedEmail === 'host@rentpro.com' && password === DEMO_PASSWORD) {
+        setUser(DEMO_HOST);
+        localStorage.setItem('demo_user', JSON.stringify(DEMO_HOST));
+        return { error: null };
+      }
+      // Allow any other login with demo credentials
+      if (password === DEMO_PASSWORD) {
+        const newUser: User = {
+          id: 'demo-' + Date.now(),
+          email: normalizedEmail,
+          full_name: normalizedEmail.split('@')[0],
+          role: 'guest',
+          created_at: new Date().toISOString(),
+        };
+        setUser(newUser);
+        localStorage.setItem('demo_user', JSON.stringify(newUser));
+        return { error: null };
+      }
+      return { error: new Error('Email o contrasena incorrectos') };
+    }
+    return { error: null };
   };
 
-  const signUp = async (email: string, password: string, fullName: string, role: UserRole = 'guest') => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName, role },
-      },
-    });
-    return { error };
+  const signUp = async (_email: string, _password: string, fullName: string, role: UserRole) => {
+    if (USE_DEMO) {
+      const newUser: User = {
+        id: 'demo-' + Date.now(),
+        email: _email.toLowerCase(),
+        full_name: fullName,
+        role,
+        created_at: new Date().toISOString(),
+      };
+      setUser(newUser);
+      localStorage.setItem('demo_user', JSON.stringify(newUser));
+      return { error: null };
+    }
+    return { error: null };
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
     setUser(null);
+    localStorage.removeItem('demo_user');
   };
 
   const value: AuthContextType = {
